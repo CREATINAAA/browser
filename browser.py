@@ -2,6 +2,22 @@ import tkinter
 import socket
 import ssl
 
+
+HSTEP, VSTEP = 13, 18
+cursor_x, cursor_y = HSTEP, VSTEP
+WIDTH, HEIGHT = 800, 600
+
+def layout(text):
+    display_list = []
+    cursor_x, cursor_y = HSTEP, VSTEP
+    for c in text:
+        display_list.append((cursor_x, cursor_y, c))
+        cursor_x += HSTEP
+        if cursor_x >= WIDTH - HSTEP:
+            cursor_x = HSTEP
+            cursor_y += VSTEP
+    return display_list
+
 def show(body):
     in_tag = False
     for c in body:
@@ -15,6 +31,18 @@ def show(body):
 def load (url):
     body = url.request()
     show(body)
+    
+def lex(body):
+    text = ""
+    in_tag = False
+    for c in body:
+        if c == "<":
+            in_tag = True
+        elif c == ">":
+            in_tag = False
+        elif not in_tag:
+            text += c
+    return text
 
 
 class URL:
@@ -24,6 +52,9 @@ class URL:
         self.path = "/" + url
         assert self.scheme in {"http", "https", "file"}
         
+        if self.scheme == "file":
+            self.read_local_file()
+        
         if "/" not in url:
             url = url + "/"
 
@@ -31,6 +62,12 @@ class URL:
             self.port = 80
         elif self.scheme == "https":
             self.port = 443
+        else:
+            self.port = 0
+            
+        if ":" in self.host:
+            self.host, port = self.host.split(":", 1)
+            self.port = int(port)
         
     def request(self):
         s = socket.socket(
@@ -38,7 +75,10 @@ class URL:
             type=socket.SOCK_STREAM,
             proto=socket.IPPROTO_TCP,
         )
-        
+        if self.scheme == "https":
+            ctx = ssl.create_default_context()
+            s = ctx.wrap_socket(s, server_hostname=self.host)
+
         s.connect((self.host, self.port))
         
         request = "GET {} HTTP/1.0\r\n".format(self.path)
@@ -68,8 +108,40 @@ class URL:
         
         return content
     
+    def read_local_file(self):
+        with open(self.path, "r") as f:
+            return f.read()
+    
 class Browser:
-    pass
+    def __init__(self):
+        self.SCROLL_STEP = 10
+        self.window = tkinter.Tk()
+        self.canvas = tkinter.Canvas(
+            self.window,
+            width=WIDTH,
+            height=HEIGHT
+        )
+        self.canvas.pack()
+        self.scroll = 0
+        self.window.bind("<Down>", self.scrolldown)
+        
+    def load(self, url):
+        body = url.request()
+        text = lex(body)
+        self.display_list = layout(text)
+        self.draw()
+
+    def scrolldown(self, e):
+        self.scroll += self.SCROLL_STEP
+        self.draw()
+
+        # self.canvas.create_oval(100, 100, 150, 150)
+#                                x1,  y1,  x2,  y2 
+    
+    def draw(self):
+        self.canvas.delete("all")
+        for x, y, c in self.display_list:
+            self.canvas.create_text(x, y - self.scroll, text=c)
 
 
 class Text:
@@ -86,4 +158,13 @@ class Layout:
 
 if __name__ == "__main__":
     import sys
-    load(URL(sys.argv[1]))
+    Browser().load(URL(sys.argv[1]))
+    tkinter.mainloop()
+
+# if __name__ == "__main__":
+#     import sys
+#     try:
+#         load(URL(sys.argv[1]))
+#     except IndexError:
+#         load(URL("file:///home/bolshoy/Desktop/test.txt"))
+    
